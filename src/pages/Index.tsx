@@ -2,7 +2,8 @@ import { usePayment } from '@/contexts/PaymentContext';
 import { QRCodeSVG } from 'qrcode.react';
 import { Clock, MapPin, Plane, Copy, Shield, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import decolarLogo from '@/assets/decolar-logo.png';
+import azulLogo from '@/assets/azul-viagens-logo.png';
+import { MessageCircle } from 'lucide-react';
 
 const Index = () => {
   const { payment } = usePayment();
@@ -40,7 +41,7 @@ const Index = () => {
     <div className="min-h-screen bg-background pb-8">
       {/* Header */}
       <header className="flex justify-center py-4">
-        <img src={decolarLogo} alt="Decolar" className="h-8" />
+        <img src={azulLogo} alt="Azul Viagens" className="h-14" />
       </header>
 
       {/* Status badge */}
@@ -154,6 +155,17 @@ const Index = () => {
           <p className="text-center text-xs text-muted-foreground">
             Após o pagamento, a confirmação será processada automaticamente.
           </p>
+
+          {/* WhatsApp button */}
+          <a
+            href="https://wa.me/message/7JZNHRKEYXZWE1"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full rounded-lg bg-[#25D366] py-3 font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] flex items-center justify-center gap-2"
+          >
+            <MessageCircle className="h-5 w-5" />
+            Enviar Comprovante via WhatsApp
+          </a>
         </div>
       </div>
     </div>
