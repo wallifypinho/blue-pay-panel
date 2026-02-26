@@ -35,6 +35,7 @@ interface Payment {
   pix_code: string;
   order_number: string;
   created_at: string;
+  short_code: string;
 }
 
 interface Operator {
@@ -206,7 +207,7 @@ const OperatorPanel = () => {
     fetchPayments();
   };
 
-  const getPaymentLink = (id: string) => `${PUBLISHED_URL}/pay/${id}`;
+  const getPaymentLink = (shortCode: string) => `${PUBLISHED_URL}/p/${shortCode}`;
 
   const handleCopyLink = (id: string) => {
     navigator.clipboard.writeText(getPaymentLink(id));
@@ -352,12 +353,12 @@ const OperatorPanel = () => {
                     {expandedId === p.id && (
                       <div className="border-t border-border p-3 space-y-3">
                         <div className="rounded-lg bg-primary/5 border border-primary/20 p-2">
-                          <p className="text-xs text-muted-foreground break-all font-mono">{getPaymentLink(p.id)}</p>
+                          <p className="text-xs text-muted-foreground break-all font-mono">{getPaymentLink(p.short_code)}</p>
                         </div>
                         <div className="flex justify-center py-2">
                           <QRCodeSVG value={p.pix_code} size={100} />
                         </div>
-                        <button onClick={() => handleCopyLink(p.id)}
+                        <button onClick={() => handleCopyLink(p.short_code)}
                           className="w-full inline-flex items-center justify-center gap-1 rounded-lg bg-primary/10 px-3 py-2 text-xs font-medium text-primary hover:opacity-80">
                           <Link className="h-3 w-3" /> Copiar Link
                         </button>
