@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
-import { Settings, Plus, Link, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { Settings, Plus, Link, ChevronDown, ChevronUp, Trash2, AlertTriangle } from 'lucide-react';
 
 const PUBLISHED_URL = 'https://centralazul.site';
 
@@ -12,6 +12,10 @@ const generateOrderNumber = () => {
   let result = '';
   for (let i = 0; i < 6; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
   return result;
+};
+
+const generateSessionToken = () => {
+  return crypto.randomUUID();
 };
 
 const maskCPF = (cpf: string) => {
@@ -38,17 +42,20 @@ interface Operator {
   name: string;
   slug: string;
   password: string;
+  session_token: string | null;
 }
 
 const OperatorPanel = () => {
   const { slug } = useParams<{ slug: string }>();
   const [operator, setOperator] = useState<Operator | null>(null);
   const [authenticated, setAuthenticated] = useState(false);
+  const [sessionBlocked, setSessionBlocked] = useState(false);
   const [password, setPassword] = useState('');
   const [notFound, setNotFound] = useState(false);
 
   const [payments, setPayments] = useState<Payment[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // Form
   const [clientName, setClientName] = useState('');
@@ -73,9 +80,42 @@ const OperatorPanel = () => {
         return;
       }
       setOperator(data);
+
+      // Check if already authenticated in this browser
+      const storedToken = localStorage.getItem(`op_session_${slug}`);
+      if (storedToken && data.session_token === storedToken) {
+        setAuthenticated(true);
+      }
     };
     loadOperator();
   }, [slug]);
+
+  // Periodically check if session is still valid
+  const checkSession = useCallback(async () => {
+    if (!authenticated || !operator || !slug) return;
+    const storedToken = localStorage.getItem(`op_session_${slug}`);
+    if (!storedToken) {
+      setSessionBlocked(true);
+      setAuthenticated(false);
+      return;
+    }
+    const { data } = await supabase
+      .from('operators')
+      .select('session_token')
+      .eq('id', operator.id)
+      .single();
+    if (data && data.session_token !== storedToken) {
+      setSessionBlocked(true);
+      setAuthenticated(false);
+      localStorage.removeItem(`op_session_${slug}`);
+    }
+  }, [authenticated, operator, slug]);
+
+  useEffect(() => {
+    if (!authenticated) return;
+    const interval = setInterval(checkSession, 10000); // check every 10s
+    return () => clearInterval(interval);
+  }, [authenticated, checkSession]);
 
   const fetchPayments = async () => {
     if (!operator) return;
@@ -91,13 +131,31 @@ const OperatorPanel = () => {
     if (authenticated && operator) fetchPayments();
   }, [authenticated, operator]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (operator && password === operator.password) {
-      setAuthenticated(true);
-    } else {
+    if (!operator || !slug) return;
+    
+    if (password !== operator.password) {
       toast.error('Senha incorreta.');
+      return;
     }
+
+    // Generate new session token and save to DB
+    const newToken = generateSessionToken();
+    const { error } = await supabase
+      .from('operators')
+      .update({ session_token: newToken })
+      .eq('id', operator.id);
+
+    if (error) {
+      toast.error('Erro ao iniciar sessão.');
+      return;
+    }
+
+    localStorage.setItem(`op_session_${slug}`, newToken);
+    setOperator({ ...operator, session_token: newToken });
+    setSessionBlocked(false);
+    setAuthenticated(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -136,6 +194,18 @@ const OperatorPanel = () => {
     fetchPayments();
   };
 
+  const handleDeletePayment = async (id: string) => {
+    const { error } = await supabase.from('payments').delete().eq('id', id);
+    if (error) {
+      toast.error('Erro ao excluir pagamento.');
+      return;
+    }
+    toast.success('Pagamento excluído!');
+    setDeleteConfirmId(null);
+    setExpandedId(null);
+    fetchPayments();
+  };
+
   const getPaymentLink = (id: string) => `${PUBLISHED_URL}/pay/${id}`;
 
   const handleCopyLink = (id: string) => {
@@ -171,6 +241,12 @@ const OperatorPanel = () => {
               <h1 className="text-xl font-bold text-foreground">Painel de {operator.name}</h1>
             </div>
           </div>
+          {sessionBlocked && (
+            <div className="flex items-center gap-2 rounded-lg bg-destructive/10 border border-destructive/30 p-3 mb-4">
+              <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
+              <p className="text-xs text-destructive">Sua sessão foi encerrada porque outro dispositivo fez login. Faça login novamente para continuar.</p>
+            </div>
+          )}
           <label className="block text-sm font-medium text-card-foreground mb-1">Senha</label>
           <input type="password" value={password} onChange={e => setPassword(e.target.value)}
             className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground mb-4 focus:outline-none focus:ring-2 focus:ring-ring" />
@@ -285,6 +361,23 @@ const OperatorPanel = () => {
                           className="w-full inline-flex items-center justify-center gap-1 rounded-lg bg-primary/10 px-3 py-2 text-xs font-medium text-primary hover:opacity-80">
                           <Link className="h-3 w-3" /> Copiar Link
                         </button>
+                        {deleteConfirmId === p.id ? (
+                          <div className="flex gap-2">
+                            <button onClick={() => handleDeletePayment(p.id)}
+                              className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-destructive px-3 py-2 text-xs font-medium text-destructive-foreground hover:opacity-90">
+                              Confirmar Exclusão
+                            </button>
+                            <button onClick={() => setDeleteConfirmId(null)}
+                              className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted/50">
+                              Cancelar
+                            </button>
+                          </div>
+                        ) : (
+                          <button onClick={() => setDeleteConfirmId(p.id)}
+                            className="w-full inline-flex items-center justify-center gap-1 rounded-lg bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive hover:opacity-80">
+                            <Trash2 className="h-3 w-3" /> Excluir Pagamento
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>

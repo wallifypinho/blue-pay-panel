@@ -1,0 +1,1 @@
+ALTER TABLE public.operators ADD COLUMN session_token text;
