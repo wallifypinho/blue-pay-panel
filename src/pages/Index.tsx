@@ -41,7 +41,7 @@ const Index = () => {
     <div className="min-h-screen bg-background pb-8">
       {/* Header */}
       <header className="flex justify-center py-4">
-        <img src={azulLogo} alt="Azul Viagens" className="h-14" />
+        <img src={azulLogo} alt="Azul Viagens" className="h-24" />
       </header>
 
       {/* Status badge */}
