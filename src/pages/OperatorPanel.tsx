@@ -14,10 +14,6 @@ const generateOrderNumber = () => {
   return result;
 };
 
-const generateSessionToken = () => {
-  return crypto.randomUUID();
-};
-
 const maskCPF = (cpf: string) => {
   const digits = cpf.replace(/\D/g, '');
   if (digits.length < 11) return cpf;
@@ -38,22 +34,22 @@ interface Payment {
   short_code: string;
 }
 
-interface Operator {
+interface OperatorInfo {
   id: string;
   name: string;
   slug: string;
-  password: string;
   whatsapp: string;
-  session_token: string | null;
 }
 
 const OperatorPanel = () => {
   const { slug } = useParams<{ slug: string }>();
-  const [operator, setOperator] = useState<Operator | null>(null);
+  const [operator, setOperator] = useState<OperatorInfo | null>(null);
   const [authenticated, setAuthenticated] = useState(false);
   const [sessionBlocked, setSessionBlocked] = useState(false);
+  const [sessionToken, setSessionTokenState] = useState<string | null>(null);
   const [password, setPassword] = useState('');
   const [notFound, setNotFound] = useState(false);
+  const [loadingOperator, setLoadingOperator] = useState(true);
 
   const [payments, setPayments] = useState<Payment[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -71,94 +67,91 @@ const OperatorPanel = () => {
   const [editingWhatsapp, setEditingWhatsapp] = useState(false);
   const [whatsappInput, setWhatsappInput] = useState('');
 
+  const operatorAction = async (action: string, data: any = {}) => {
+    if (!operator || !sessionToken) return null;
+    const { data: result, error } = await supabase.functions.invoke('operator-action', {
+      body: { action, sessionToken, operatorId: operator.id, data },
+    });
+    if (error) {
+      toast.error('Erro na operação.');
+      return null;
+    }
+    if (result?.error === 'Invalid or expired session') {
+      setSessionBlocked(true);
+      setAuthenticated(false);
+      localStorage.removeItem(`op_session_${slug}`);
+      return null;
+    }
+    if (result?.error) {
+      toast.error(result.error);
+      return null;
+    }
+    return result;
+  };
+
   useEffect(() => {
     const loadOperator = async () => {
       if (!slug) return;
+      // Only fetch non-sensitive fields (name, slug) for initial display
       const { data, error } = await supabase
         .from('operators')
-        .select('*')
+        .select('id, name, slug, whatsapp')
         .eq('slug', slug)
         .single();
       if (error || !data) {
         setNotFound(true);
+        setLoadingOperator(false);
         return;
       }
-      setOperator(data);
+      setOperator({ id: data.id, name: data.name, slug: data.slug, whatsapp: data.whatsapp || '' });
       setWhatsappInput(data.whatsapp || '');
+      setLoadingOperator(false);
 
-      // Check if already authenticated in this browser
+      // Check if already authenticated via stored session
       const storedToken = localStorage.getItem(`op_session_${slug}`);
-      if (storedToken && data.session_token === storedToken) {
-        setAuthenticated(true);
+      if (storedToken) {
+        // Validate session via edge function
+        const { data: result } = await supabase.functions.invoke('operator-action', {
+          body: { action: 'list-payments', sessionToken: storedToken, operatorId: data.id, data: {} },
+        });
+        if (result && !result.error) {
+          setSessionTokenState(storedToken);
+          setAuthenticated(true);
+          if (result.payments) setPayments(result.payments);
+        } else {
+          localStorage.removeItem(`op_session_${slug}`);
+        }
       }
     };
     loadOperator();
   }, [slug]);
 
-  // Periodically check if session is still valid
-  const checkSession = useCallback(async () => {
-    if (!authenticated || !operator || !slug) return;
-    const storedToken = localStorage.getItem(`op_session_${slug}`);
-    if (!storedToken) {
-      setSessionBlocked(true);
-      setAuthenticated(false);
-      return;
-    }
-    const { data } = await supabase
-      .from('operators')
-      .select('session_token')
-      .eq('id', operator.id)
-      .single();
-    if (data && data.session_token !== storedToken) {
-      setSessionBlocked(true);
-      setAuthenticated(false);
-      localStorage.removeItem(`op_session_${slug}`);
-    }
-  }, [authenticated, operator, slug]);
-
-  useEffect(() => {
-    if (!authenticated) return;
-    const interval = setInterval(checkSession, 10000); // check every 10s
-    return () => clearInterval(interval);
-  }, [authenticated, checkSession]);
-
   const fetchPayments = async () => {
-    if (!operator) return;
-    const { data } = await supabase
-      .from('payments')
-      .select('*')
-      .eq('operator_id', operator.id)
-      .order('created_at', { ascending: false });
-    if (data) setPayments(data);
+    const result = await operatorAction('list-payments');
+    if (result?.payments) setPayments(result.payments);
   };
 
   useEffect(() => {
-    if (authenticated && operator) fetchPayments();
-  }, [authenticated, operator]);
+    if (authenticated && operator && sessionToken) fetchPayments();
+  }, [authenticated, operator, sessionToken]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!operator || !slug) return;
-    
-    if (password !== operator.password) {
+    if (!slug) return;
+
+    const { data, error } = await supabase.functions.invoke('operator-login', {
+      body: { slug, password },
+    });
+
+    if (error || !data?.success) {
       toast.error('Senha incorreta.');
       return;
     }
 
-    // Generate new session token and save to DB
-    const newToken = generateSessionToken();
-    const { error } = await supabase
-      .from('operators')
-      .update({ session_token: newToken })
-      .eq('id', operator.id);
-
-    if (error) {
-      toast.error('Erro ao iniciar sessão.');
-      return;
-    }
-
-    localStorage.setItem(`op_session_${slug}`, newToken);
-    setOperator({ ...operator, session_token: newToken });
+    localStorage.setItem(`op_session_${slug}`, data.sessionToken);
+    setSessionTokenState(data.sessionToken);
+    setOperator(data.operator);
+    setWhatsappInput(data.operator.whatsapp || '');
     setSessionBlocked(false);
     setAuthenticated(true);
   };
@@ -172,26 +165,19 @@ const OperatorPanel = () => {
     }
 
     setLoading(true);
-    const { error } = await supabase
-      .from('payments')
-      .insert({
-        client_name: clientName,
-        cpf: maskCPF(cpfRaw),
-        destination,
-        destination_emoji: destinationEmoji,
-        destination_description: destinationDescription,
-        value: parseFloat(value),
-        pix_code: pixCode,
-        order_number: generateOrderNumber(),
-        operator_id: operator.id,
-        whatsapp: operator.whatsapp || '',
-      });
+    const result = await operatorAction('create-payment', {
+      client_name: clientName,
+      cpf: maskCPF(cpfRaw),
+      destination,
+      destination_emoji: destinationEmoji,
+      destination_description: destinationDescription,
+      value: parseFloat(value),
+      pix_code: pixCode,
+      order_number: generateOrderNumber(),
+    });
     setLoading(false);
 
-    if (error) {
-      toast.error('Erro ao salvar.');
-      return;
-    }
+    if (!result?.success) return;
 
     toast.success('Pagamento gerado!');
     setClientName(''); setCpfRaw(''); setDestination('');
@@ -201,15 +187,13 @@ const OperatorPanel = () => {
   };
 
   const handleDeletePayment = async (id: string) => {
-    const { error } = await supabase.from('payments').delete().eq('id', id);
-    if (error) {
-      toast.error('Erro ao excluir pagamento.');
-      return;
+    const result = await operatorAction('delete-payment', { id });
+    if (result?.success) {
+      toast.success('Pagamento excluído!');
+      setDeleteConfirmId(null);
+      setExpandedId(null);
+      fetchPayments();
     }
-    toast.success('Pagamento excluído!');
-    setDeleteConfirmId(null);
-    setExpandedId(null);
-    fetchPayments();
   };
 
   const getPaymentLink = (shortCode: string) => `${PUBLISHED_URL}/p/${shortCode}`;
@@ -218,6 +202,14 @@ const OperatorPanel = () => {
     navigator.clipboard.writeText(getPaymentLink(id));
     toast.success('Link copiado!');
   };
+
+  if (loadingOperator) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-muted-foreground">Carregando...</p>
+      </div>
+    );
+  }
 
   if (notFound) {
     return (
@@ -288,12 +280,14 @@ const OperatorPanel = () => {
               <div className="flex items-center gap-2">
                 <input type="text" value={whatsappInput} onChange={e => setWhatsappInput(e.target.value)}
                   className="rounded-lg border border-input bg-background px-2 py-1 text-sm text-foreground w-40 focus:outline-none focus:ring-2 focus:ring-ring"
-                  placeholder="5511999999999" />
+                  placeholder="5511999999999" maxLength={20} />
                 <button onClick={async () => {
-                  await supabase.from('operators').update({ whatsapp: whatsappInput }).eq('id', operator.id);
-                  setOperator({ ...operator, whatsapp: whatsappInput });
-                  setEditingWhatsapp(false);
-                  toast.success('WhatsApp atualizado!');
+                  const result = await operatorAction('update-whatsapp', { whatsapp: whatsappInput });
+                  if (result?.success) {
+                    setOperator({ ...operator, whatsapp: whatsappInput });
+                    setEditingWhatsapp(false);
+                    toast.success('WhatsApp atualizado!');
+                  }
                 }} className="p-1 rounded-lg bg-primary/10 text-primary hover:opacity-80">
                   <Check className="h-4 w-4" />
                 </button>
@@ -320,7 +314,7 @@ const OperatorPanel = () => {
                 <label className="block text-sm font-medium text-card-foreground mb-1">Nome do Cliente *</label>
                 <input type="text" value={clientName} onChange={e => setClientName(e.target.value)}
                   className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  placeholder="Ex: João Silva" />
+                  placeholder="Ex: João Silva" maxLength={100} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-card-foreground mb-1">CPF *</label>
@@ -331,28 +325,32 @@ const OperatorPanel = () => {
               <div>
                 <label className="block text-sm font-medium text-card-foreground mb-1">Destino *</label>
                 <input type="text" value={destination} onChange={e => setDestination(e.target.value)}
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  maxLength={100} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-card-foreground mb-1">Descrição</label>
                   <input type="text" value={destinationDescription} onChange={e => setDestinationDescription(e.target.value)}
-                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    maxLength={200} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-card-foreground mb-1">Emoji</label>
                   <input type="text" value={destinationEmoji} onChange={e => setDestinationEmoji(e.target.value)}
-                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    maxLength={10} />
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-card-foreground mb-1">Valor (R$) *</label>
-                <input type="number" step="0.01" value={value} onChange={e => setValue(e.target.value)}
+                <input type="number" step="0.01" min="0.01" max="100000" value={value} onChange={e => setValue(e.target.value)}
                   className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-card-foreground mb-1">Código PIX *</label>
                 <textarea value={pixCode} onChange={e => setPixCode(e.target.value)} rows={2}
+                  maxLength={500}
                   className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-ring" />
               </div>
               <button type="submit" disabled={loading}
@@ -402,11 +400,11 @@ const OperatorPanel = () => {
                         {deleteConfirmId === p.id ? (
                           <div className="flex gap-2">
                             <button onClick={() => handleDeletePayment(p.id)}
-                              className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-destructive px-3 py-2 text-xs font-medium text-destructive-foreground hover:opacity-90">
+                              className="flex-1 rounded-lg bg-destructive py-2 text-xs font-medium text-destructive-foreground hover:opacity-90">
                               Confirmar Exclusão
                             </button>
                             <button onClick={() => setDeleteConfirmId(null)}
-                              className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted/50">
+                              className="flex-1 rounded-lg bg-muted py-2 text-xs font-medium text-muted-foreground hover:opacity-90">
                               Cancelar
                             </button>
                           </div>

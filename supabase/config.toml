@@ -1,1 +1,13 @@
 project_id = "ywahkfphujpwstgxoykr"
+
+[functions.admin-login]
+verify_jwt = false
+
+[functions.operator-login]
+verify_jwt = false
+
+[functions.admin-action]
+verify_jwt = false
+
+[functions.operator-action]
+verify_jwt = false

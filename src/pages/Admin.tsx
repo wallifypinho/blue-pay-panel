@@ -5,7 +5,6 @@ import { toast } from 'sonner';
 import { Settings, Trash2, Link, Plus, ChevronDown, ChevronUp, Users, Eye, EyeOff, Copy } from 'lucide-react';
 
 const PUBLISHED_URL = 'https://centralazul.site';
-const ADMIN_PASSWORD = 'admin2025';
 
 const generateOrderNumber = () => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -33,7 +32,6 @@ interface Operator {
   id: string;
   name: string;
   slug: string;
-  password: string;
   whatsapp: string;
   created_at: string;
 }
@@ -55,6 +53,7 @@ interface Payment {
 const Admin = () => {
   const [authenticated, setAuthenticated] = useState(false);
   const [adminPass, setAdminPass] = useState('');
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
 
   const [operators, setOperators] = useState<Operator[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -81,26 +80,47 @@ const Admin = () => {
   const [newOpWhatsapp, setNewOpWhatsapp] = useState('');
   const [showOpPassword, setShowOpPassword] = useState(false);
 
+  const adminAction = async (action: string, data: any = {}) => {
+    const { data: result, error } = await supabase.functions.invoke('admin-action', {
+      body: { action, sessionToken, data },
+    });
+    if (error) {
+      toast.error('Erro na operação.');
+      return null;
+    }
+    if (result?.error) {
+      toast.error(result.error);
+      return null;
+    }
+    return result;
+  };
+
   const fetchAll = async () => {
-    const [opsRes, payRes] = await Promise.all([
-      supabase.from('operators').select('*').order('created_at', { ascending: true }),
-      supabase.from('payments').select('*').order('created_at', { ascending: false }),
+    const [opsResult, paysResult] = await Promise.all([
+      adminAction('list-operators'),
+      adminAction('list-payments'),
     ]);
-    if (opsRes.data) setOperators(opsRes.data);
-    if (payRes.data) setPayments(payRes.data);
+    if (opsResult?.operators) setOperators(opsResult.operators);
+    if (paysResult?.payments) setPayments(paysResult.payments);
   };
 
   useEffect(() => {
-    if (authenticated) fetchAll();
-  }, [authenticated]);
+    if (authenticated && sessionToken) fetchAll();
+  }, [authenticated, sessionToken]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (adminPass === ADMIN_PASSWORD) {
-      setAuthenticated(true);
-    } else {
+    const { data, error } = await supabase.functions.invoke('admin-login', {
+      body: { password: adminPass },
+    });
+
+    if (error || !data?.success) {
       toast.error('Senha incorreta.');
+      return;
     }
+
+    setSessionToken(data.sessionToken);
+    setAuthenticated(true);
   };
 
   // ---- Payments ----
@@ -112,25 +132,20 @@ const Admin = () => {
     }
 
     setLoading(true);
-    const { error } = await supabase
-      .from('payments')
-      .insert({
-        client_name: clientName,
-        cpf: maskCPF(cpfRaw),
-        destination,
-        destination_emoji: destinationEmoji,
-        destination_description: destinationDescription,
-        value: parseFloat(value),
-        pix_code: pixCode,
-        order_number: generateOrderNumber(),
-        operator_id: paymentOperatorId || null,
-      });
+    const result = await adminAction('create-payment', {
+      client_name: clientName,
+      cpf: maskCPF(cpfRaw),
+      destination,
+      destination_emoji: destinationEmoji,
+      destination_description: destinationDescription,
+      value: parseFloat(value),
+      pix_code: pixCode,
+      order_number: generateOrderNumber(),
+      operator_id: paymentOperatorId || null,
+    });
     setLoading(false);
 
-    if (error) {
-      toast.error('Erro ao salvar pagamento.');
-      return;
-    }
+    if (!result?.success) return;
 
     toast.success('Pagamento gerado!');
     setClientName(''); setCpfRaw(''); setDestination('');
@@ -140,7 +155,7 @@ const Admin = () => {
   };
 
   const handleDeletePayment = async (id: string) => {
-    await supabase.from('payments').delete().eq('id', id);
+    await adminAction('delete-payment', { id });
     toast.info('Pagamento removido.');
     fetchAll();
   };
@@ -165,14 +180,11 @@ const Admin = () => {
     }
 
     const slug = generateSlug(newOpName);
-    const { error } = await supabase
-      .from('operators')
-      .insert({ name: newOpName, slug, password: newOpPassword, whatsapp: newOpWhatsapp });
+    const result = await adminAction('create-operator', {
+      name: newOpName, slug, password: newOpPassword, whatsapp: newOpWhatsapp,
+    });
 
-    if (error) {
-      toast.error(error.message.includes('unique') ? 'Nome/slug já existe.' : 'Erro ao criar operador.');
-      return;
-    }
+    if (!result?.success) return;
 
     toast.success('Operador criado!');
     setNewOpName('');
@@ -182,7 +194,7 @@ const Admin = () => {
   };
 
   const handleDeleteOperator = async (id: string) => {
-    await supabase.from('operators').delete().eq('id', id);
+    await adminAction('delete-operator', { id });
     toast.info('Operador removido.');
     fetchAll();
   };
@@ -277,7 +289,7 @@ const Admin = () => {
                   <label className="block text-sm font-medium text-card-foreground mb-1">Nome do Cliente *</label>
                   <input type="text" value={clientName} onChange={e => setClientName(e.target.value)}
                     className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    placeholder="Ex: João Silva" />
+                    placeholder="Ex: João Silva" maxLength={100} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-card-foreground mb-1">CPF *</label>
@@ -289,28 +301,31 @@ const Admin = () => {
                   <label className="block text-sm font-medium text-card-foreground mb-1">Destino *</label>
                   <input type="text" value={destination} onChange={e => setDestination(e.target.value)}
                     className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    placeholder="Ex: Campinas (VCP)" />
+                    placeholder="Ex: Campinas (VCP)" maxLength={100} />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-sm font-medium text-card-foreground mb-1">Descrição</label>
                     <input type="text" value={destinationDescription} onChange={e => setDestinationDescription(e.target.value)}
-                      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+                      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      maxLength={200} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-card-foreground mb-1">Emoji</label>
                     <input type="text" value={destinationEmoji} onChange={e => setDestinationEmoji(e.target.value)}
-                      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+                      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      maxLength={10} />
                   </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-card-foreground mb-1">Valor (R$) *</label>
-                  <input type="number" step="0.01" value={value} onChange={e => setValue(e.target.value)}
+                  <input type="number" step="0.01" min="0.01" max="100000" value={value} onChange={e => setValue(e.target.value)}
                     className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-card-foreground mb-1">Código PIX *</label>
                   <textarea value={pixCode} onChange={e => setPixCode(e.target.value)} rows={2}
+                    maxLength={500}
                     className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-ring" />
                 </div>
                 <button type="submit" disabled={loading}
@@ -402,14 +417,14 @@ const Admin = () => {
                     <label className="block text-sm font-medium text-card-foreground mb-1">Nome *</label>
                     <input type="text" value={newOpName} onChange={e => setNewOpName(e.target.value)}
                       className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                      placeholder="Ex: Maria" />
+                      placeholder="Ex: Maria" maxLength={50} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-card-foreground mb-1">Senha de acesso *</label>
                     <div className="relative">
                       <input type={showOpPassword ? 'text' : 'password'} value={newOpPassword} onChange={e => setNewOpPassword(e.target.value)}
                         className="w-full rounded-lg border border-input bg-background px-3 py-2 pr-10 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                        placeholder="Senha para o operador" />
+                        placeholder="Senha para o operador" maxLength={100} />
                       <button type="button" onClick={() => setShowOpPassword(!showOpPassword)}
                         className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground">
                         {showOpPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -420,7 +435,7 @@ const Admin = () => {
                     <label className="block text-sm font-medium text-card-foreground mb-1">WhatsApp</label>
                     <input type="text" value={newOpWhatsapp} onChange={e => setNewOpWhatsapp(e.target.value)}
                       className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                      placeholder="Ex: 5511999999999" />
+                      placeholder="Ex: 5511999999999" maxLength={20} />
                   </div>
                   <button type="submit"
                     className="w-full rounded-lg bg-primary py-2.5 font-semibold text-primary-foreground hover:opacity-90">
@@ -442,7 +457,6 @@ const Admin = () => {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="font-medium text-foreground">{op.name}</p>
-                          <p className="text-xs text-muted-foreground">Senha: {op.password}</p>
                           {op.whatsapp && <p className="text-xs text-muted-foreground">WhatsApp: {op.whatsapp}</p>}
                         </div>
                         <span className="text-xs text-muted-foreground">
