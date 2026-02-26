@@ -53,6 +53,7 @@ export type Database = {
           operator_id: string | null
           order_number: string
           pix_code: string
+          short_code: string
           value: number
         }
         Insert: {
@@ -66,6 +67,7 @@ export type Database = {
           operator_id?: string | null
           order_number: string
           pix_code: string
+          short_code?: string
           value: number
         }
         Update: {
@@ -79,6 +81,7 @@ export type Database = {
           operator_id?: string | null
           order_number?: string
           pix_code?: string
+          short_code?: string
           value?: number
         }
         Relationships: [
