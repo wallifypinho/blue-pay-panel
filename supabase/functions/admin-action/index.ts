@@ -13,7 +13,6 @@ Deno.serve(async (req) => {
   try {
     const { action, sessionToken, data } = await req.json();
 
-    // Validate admin session
     const adminPassword = Deno.env.get("ADMIN_PASSWORD");
     if (!adminPassword || !sessionToken) {
       return new Response(
@@ -37,7 +36,6 @@ Deno.serve(async (req) => {
           );
         }
 
-        // Check operator count limit
         const { count } = await supabase.from("operators").select("*", { count: "exact", head: true });
         if (count && count >= 5) {
           return new Response(
@@ -81,19 +79,82 @@ Deno.serve(async (req) => {
       }
 
       case "create-payment": {
-        const { client_name, cpf, destination, destination_emoji, destination_description, value, pix_code, order_number, operator_id } = data;
-        if (!client_name || !cpf || !destination || !value || !pix_code || !order_number) {
+        const { client_name, cpf, destination, destination_emoji, destination_description, value, pix_code, order_number, operator_id, payment_method, gateway_id } = data;
+        
+        if (!client_name || !cpf || !destination || !value || !order_number) {
           return new Response(
             JSON.stringify({ error: "Missing required fields" }),
             { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
 
-        // Validate value
         const numValue = Number(value);
         if (isNaN(numValue) || numValue <= 0 || numValue > 100000) {
           return new Response(
             JSON.stringify({ error: "Invalid value" }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        const method = payment_method || "manual";
+        let finalPixCode = pix_code || "";
+        let gatewayPixCode = null;
+        let gatewayQrCodeUrl = null;
+
+        // If gateway method, call external API
+        if (method === "gateway" && gateway_id) {
+          const { data: gwConfig, error: gwError } = await supabase
+            .from("gateway_configs")
+            .select("*")
+            .eq("id", gateway_id)
+            .eq("is_active", true)
+            .single();
+
+          if (gwError || !gwConfig) {
+            return new Response(
+              JSON.stringify({ error: "Gateway não encontrado ou inativo" }),
+              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
+          try {
+            const gwResponse = await fetch(gwConfig.api_url, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${gwConfig.secret_key}`,
+                "X-Public-Key": gwConfig.public_key,
+              },
+              body: JSON.stringify({
+                amount: numValue,
+                currency: "BRL",
+                payment_method: "pix",
+                description: `Pagamento - ${client_name} - ${destination}`,
+              }),
+            });
+
+            const gwResult = await gwResponse.json();
+
+            if (!gwResponse.ok) {
+              return new Response(
+                JSON.stringify({ error: `Erro no gateway: ${gwResult.message || gwResult.error || "Falha na requisição"}` }),
+                { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              );
+            }
+
+            // Try to extract PIX code and QR code URL from common response formats
+            gatewayPixCode = gwResult.pix_code || gwResult.pix?.code || gwResult.qr_code || gwResult.brcode || gwResult.payload || "";
+            gatewayQrCodeUrl = gwResult.qr_code_url || gwResult.pix?.qr_code_url || gwResult.qr_code_image || "";
+            finalPixCode = gatewayPixCode || finalPixCode;
+          } catch (fetchErr) {
+            return new Response(
+              JSON.stringify({ error: "Erro ao conectar com o gateway de pagamento" }),
+              { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+        } else if (method === "manual" && !pix_code) {
+          return new Response(
+            JSON.stringify({ error: "Código PIX é obrigatório para pagamento manual" }),
             { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
@@ -107,9 +168,13 @@ Deno.serve(async (req) => {
             destination_emoji: String(destination_emoji || "✈️").substring(0, 10),
             destination_description: String(destination_description || "").substring(0, 200),
             value: numValue,
-            pix_code: String(pix_code).substring(0, 500),
+            pix_code: String(finalPixCode).substring(0, 500),
             order_number: String(order_number).substring(0, 10),
             operator_id: operator_id || null,
+            payment_method: method,
+            gateway_id: method === "gateway" ? gateway_id : null,
+            gateway_pix_code: gatewayPixCode,
+            gateway_qr_code_url: gatewayQrCodeUrl,
           })
           .select("*")
           .single();
@@ -176,6 +241,92 @@ Deno.serve(async (req) => {
 
         return new Response(
           JSON.stringify({ payments: pays }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      case "create-gateway": {
+        const { name, api_url, secret_key, public_key } = data;
+        if (!name || !api_url || !secret_key) {
+          return new Response(
+            JSON.stringify({ error: "Nome, URL da API e Secret Key são obrigatórios" }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        const { data: inserted, error } = await supabase
+          .from("gateway_configs")
+          .insert({
+            name: String(name).substring(0, 100),
+            api_url: String(api_url).substring(0, 500),
+            secret_key: String(secret_key).substring(0, 500),
+            public_key: String(public_key || "").substring(0, 500),
+          })
+          .select("id, name, api_url, is_active, created_at")
+          .single();
+
+        if (error) {
+          return new Response(
+            JSON.stringify({ error: error.message }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({ success: true, gateway: inserted }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      case "delete-gateway": {
+        const { id } = data;
+        const { error } = await supabase.from("gateway_configs").delete().eq("id", id);
+        if (error) {
+          return new Response(
+            JSON.stringify({ error: error.message }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        return new Response(
+          JSON.stringify({ success: true }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      case "toggle-gateway": {
+        const { id, is_active } = data;
+        const { error } = await supabase
+          .from("gateway_configs")
+          .update({ is_active: !!is_active })
+          .eq("id", id);
+
+        if (error) {
+          return new Response(
+            JSON.stringify({ error: error.message }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        return new Response(
+          JSON.stringify({ success: true }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      case "list-gateways": {
+        const { data: gws, error } = await supabase
+          .from("gateway_configs")
+          .select("id, name, api_url, is_active, created_at")
+          .order("created_at", { ascending: true });
+
+        if (error) {
+          return new Response(
+            JSON.stringify({ error: error.message }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({ gateways: gws }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }

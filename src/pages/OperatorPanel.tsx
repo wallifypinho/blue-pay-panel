@@ -32,6 +32,7 @@ interface Payment {
   order_number: string;
   created_at: string;
   short_code: string;
+  payment_method?: string;
 }
 
 interface OperatorInfo {
@@ -39,6 +40,11 @@ interface OperatorInfo {
   name: string;
   slug: string;
   whatsapp: string;
+}
+
+interface GatewayOption {
+  id: string;
+  name: string;
 }
 
 const OperatorPanel = () => {
@@ -52,6 +58,7 @@ const OperatorPanel = () => {
   const [loadingOperator, setLoadingOperator] = useState(true);
 
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [gateways, setGateways] = useState<GatewayOption[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
@@ -63,6 +70,8 @@ const OperatorPanel = () => {
   const [destinationDescription, setDestinationDescription] = useState('');
   const [value, setValue] = useState('');
   const [pixCode, setPixCode] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'manual' | 'gateway'>('manual');
+  const [selectedGatewayId, setSelectedGatewayId] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [editingWhatsapp, setEditingWhatsapp] = useState(false);
   const [whatsappInput, setWhatsappInput] = useState('');
@@ -92,7 +101,6 @@ const OperatorPanel = () => {
   useEffect(() => {
     const loadOperator = async () => {
       if (!slug) return;
-      // Only fetch non-sensitive fields (name, slug) for initial display
       const { data, error } = await supabase
         .from('operators')
         .select('id, name, slug, whatsapp')
@@ -107,10 +115,8 @@ const OperatorPanel = () => {
       setWhatsappInput(data.whatsapp || '');
       setLoadingOperator(false);
 
-      // Check if already authenticated via stored session
       const storedToken = localStorage.getItem(`op_session_${slug}`);
       if (storedToken) {
-        // Validate session via edge function
         const { data: result } = await supabase.functions.invoke('operator-action', {
           body: { action: 'list-payments', sessionToken: storedToken, operatorId: data.id, data: {} },
         });
@@ -131,8 +137,16 @@ const OperatorPanel = () => {
     if (result?.payments) setPayments(result.payments);
   };
 
+  const fetchGateways = async () => {
+    const result = await operatorAction('list-gateways');
+    if (result?.gateways) setGateways(result.gateways);
+  };
+
   useEffect(() => {
-    if (authenticated && operator && sessionToken) fetchPayments();
+    if (authenticated && operator && sessionToken) {
+      fetchPayments();
+      fetchGateways();
+    }
   }, [authenticated, operator, sessionToken]);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -159,8 +173,18 @@ const OperatorPanel = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!operator) return;
-    if (!clientName || !cpfRaw || !destination || !value || !pixCode) {
+    if (!clientName || !cpfRaw || !destination || !value) {
       toast.error('Preencha todos os campos obrigatórios.');
+      return;
+    }
+
+    if (paymentMethod === 'manual' && !pixCode) {
+      toast.error('Código PIX é obrigatório para pagamento manual.');
+      return;
+    }
+
+    if (paymentMethod === 'gateway' && !selectedGatewayId) {
+      toast.error('Selecione um gateway.');
       return;
     }
 
@@ -172,8 +196,10 @@ const OperatorPanel = () => {
       destination_emoji: destinationEmoji,
       destination_description: destinationDescription,
       value: parseFloat(value),
-      pix_code: pixCode,
+      pix_code: paymentMethod === 'manual' ? pixCode : '',
       order_number: generateOrderNumber(),
+      payment_method: paymentMethod,
+      gateway_id: paymentMethod === 'gateway' ? selectedGatewayId : null,
     });
     setLoading(false);
 
@@ -183,6 +209,7 @@ const OperatorPanel = () => {
     setClientName(''); setCpfRaw(''); setDestination('');
     setDestinationEmoji('✈️'); setDestinationDescription('');
     setValue(''); setPixCode('');
+    setPaymentMethod('manual'); setSelectedGatewayId('');
     fetchPayments();
   };
 
@@ -310,6 +337,38 @@ const OperatorPanel = () => {
               <Plus className="h-5 w-5" /> Novo Pagamento
             </h2>
             <form onSubmit={handleSubmit} className="space-y-3">
+              {/* Payment method selector */}
+              <div>
+                <label className="block text-sm font-medium text-card-foreground mb-2">Método de Pagamento</label>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setPaymentMethod('manual')}
+                    className={`flex-1 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${paymentMethod === 'manual' ? 'border-primary bg-primary/10 text-primary' : 'border-input bg-background text-muted-foreground hover:text-foreground'}`}>
+                    📋 PIX Manual
+                  </button>
+                  <button type="button" onClick={() => setPaymentMethod('gateway')}
+                    disabled={gateways.length === 0}
+                    className={`flex-1 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${paymentMethod === 'gateway' ? 'border-primary bg-primary/10 text-primary' : 'border-input bg-background text-muted-foreground hover:text-foreground'} disabled:opacity-40 disabled:cursor-not-allowed`}>
+                    ⚡ Gateway
+                  </button>
+                </div>
+                {gateways.length === 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">Nenhum gateway disponível. Peça ao admin para configurar.</p>
+                )}
+              </div>
+
+              {paymentMethod === 'gateway' && (
+                <div>
+                  <label className="block text-sm font-medium text-card-foreground mb-1">Gateway *</label>
+                  <select value={selectedGatewayId} onChange={e => setSelectedGatewayId(e.target.value)}
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring">
+                    <option value="">Selecione...</option>
+                    {gateways.map(gw => (
+                      <option key={gw.id} value={gw.id}>{gw.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-card-foreground mb-1">Nome do Cliente *</label>
                 <input type="text" value={clientName} onChange={e => setClientName(e.target.value)}
@@ -347,15 +406,19 @@ const OperatorPanel = () => {
                 <input type="number" step="0.01" min="0.01" max="100000" value={value} onChange={e => setValue(e.target.value)}
                   className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-card-foreground mb-1">Código PIX *</label>
-                <textarea value={pixCode} onChange={e => setPixCode(e.target.value)} rows={2}
-                  maxLength={500}
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-ring" />
-              </div>
+
+              {paymentMethod === 'manual' && (
+                <div>
+                  <label className="block text-sm font-medium text-card-foreground mb-1">Código PIX *</label>
+                  <textarea value={pixCode} onChange={e => setPixCode(e.target.value)} rows={2}
+                    maxLength={500}
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-ring" />
+                </div>
+              )}
+
               <button type="submit" disabled={loading}
                 className="w-full rounded-lg bg-primary py-3 font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50">
-                {loading ? 'Salvando...' : 'Gerar Pagamento'}
+                {loading ? 'Processando...' : paymentMethod === 'gateway' ? '⚡ Gerar via Gateway' : 'Gerar Pagamento'}
               </button>
             </form>
           </div>
@@ -374,7 +437,12 @@ const OperatorPanel = () => {
                       <div className="flex items-center gap-2 min-w-0">
                         <span>{p.destination_emoji}</span>
                         <div className="min-w-0">
-                          <p className="font-medium text-sm text-foreground truncate">{p.client_name}</p>
+                          <div className="flex items-center gap-1.5">
+                            <p className="font-medium text-sm text-foreground truncate">{p.client_name}</p>
+                            {p.payment_method === 'gateway' && (
+                              <span className="shrink-0 inline-flex items-center rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-medium text-accent-foreground">⚡</span>
+                            )}
+                          </div>
                           <p className="text-xs text-muted-foreground truncate">{p.destination}</p>
                         </div>
                       </div>

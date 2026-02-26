@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      gateway_configs: {
+        Row: {
+          api_url: string
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          public_key: string
+          secret_key: string
+        }
+        Insert: {
+          api_url: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          public_key?: string
+          secret_key: string
+        }
+        Update: {
+          api_url?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          public_key?: string
+          secret_key?: string
+        }
+        Relationships: []
+      }
       operators: {
         Row: {
           created_at: string
@@ -52,9 +82,13 @@ export type Database = {
           destination: string
           destination_description: string
           destination_emoji: string
+          gateway_id: string | null
+          gateway_pix_code: string | null
+          gateway_qr_code_url: string | null
           id: string
           operator_id: string | null
           order_number: string
+          payment_method: string
           pix_code: string
           short_code: string
           value: number
@@ -67,9 +101,13 @@ export type Database = {
           destination: string
           destination_description?: string
           destination_emoji?: string
+          gateway_id?: string | null
+          gateway_pix_code?: string | null
+          gateway_qr_code_url?: string | null
           id?: string
           operator_id?: string | null
           order_number: string
+          payment_method?: string
           pix_code: string
           short_code?: string
           value: number
@@ -82,15 +120,26 @@ export type Database = {
           destination?: string
           destination_description?: string
           destination_emoji?: string
+          gateway_id?: string | null
+          gateway_pix_code?: string | null
+          gateway_qr_code_url?: string | null
           id?: string
           operator_id?: string | null
           order_number?: string
+          payment_method?: string
           pix_code?: string
           short_code?: string
           value?: number
           whatsapp?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "payments_gateway_id_fkey"
+            columns: ["gateway_id"]
+            isOneToOne: false
+            referencedRelation: "gateway_configs"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "payments_operator_id_fkey"
             columns: ["operator_id"]
