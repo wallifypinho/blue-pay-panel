@@ -25,7 +25,7 @@ const PaymentPage = () => {
           .select('*')
           .eq('short_code', code.toUpperCase())
           .single();
-        if (!error && data) {
+      if (!error && data) {
           setPayment({
             id: data.id,
             clientName: data.client_name,
@@ -36,6 +36,7 @@ const PaymentPage = () => {
             value: Number(data.value),
             pixCode: data.pix_code,
             orderNumber: data.order_number,
+            whatsapp: data.whatsapp || '',
           });
         }
       }
@@ -226,7 +227,7 @@ const PaymentPage = () => {
             Após o pagamento, a confirmação será processada automaticamente.
           </p>
 
-          <a href="https://wa.me/message/7JZNHRKEYXZWE1" target="_blank" rel="noopener noreferrer"
+          <a href={payment.whatsapp ? `https://wa.me/${payment.whatsapp}` : 'https://wa.me/message/7JZNHRKEYXZWE1'} target="_blank" rel="noopener noreferrer"
             className="w-full rounded-xl bg-[#25D366] py-3 font-semibold text-white transition-all hover:shadow-lg hover:opacity-90 active:scale-[0.98] flex items-center justify-center gap-2">
             <MessageCircle className="h-5 w-5" />
             Enviar Comprovante via WhatsApp

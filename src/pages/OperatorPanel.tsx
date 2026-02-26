@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
-import { Settings, Plus, Link, ChevronDown, ChevronUp, Trash2, AlertTriangle } from 'lucide-react';
+import { Settings, Plus, Link, ChevronDown, ChevronUp, Trash2, AlertTriangle, MessageCircle, Pencil, Check } from 'lucide-react';
 
 const PUBLISHED_URL = 'https://centralazul.site';
 
@@ -43,6 +43,7 @@ interface Operator {
   name: string;
   slug: string;
   password: string;
+  whatsapp: string;
   session_token: string | null;
 }
 
@@ -67,6 +68,8 @@ const OperatorPanel = () => {
   const [value, setValue] = useState('');
   const [pixCode, setPixCode] = useState('');
   const [loading, setLoading] = useState(false);
+  const [editingWhatsapp, setEditingWhatsapp] = useState(false);
+  const [whatsappInput, setWhatsappInput] = useState('');
 
   useEffect(() => {
     const loadOperator = async () => {
@@ -81,6 +84,7 @@ const OperatorPanel = () => {
         return;
       }
       setOperator(data);
+      setWhatsappInput(data.whatsapp || '');
 
       // Check if already authenticated in this browser
       const storedToken = localStorage.getItem(`op_session_${slug}`);
@@ -180,6 +184,7 @@ const OperatorPanel = () => {
         pix_code: pixCode,
         order_number: generateOrderNumber(),
         operator_id: operator.id,
+        whatsapp: operator.whatsapp || '',
       });
     setLoading(false);
 
@@ -262,13 +267,45 @@ const OperatorPanel = () => {
   return (
     <div className="min-h-screen bg-background py-8 px-4">
       <div className="mx-auto max-w-3xl">
-        <div className="flex items-center gap-3 mb-8">
+        <div className="flex items-center gap-3 mb-4">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary">
             <Settings className="h-5 w-5 text-primary-foreground" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-foreground">Painel de {operator.name}</h1>
             <p className="text-sm text-muted-foreground">Gerencie seus pagamentos</p>
+          </div>
+        </div>
+
+        {/* WhatsApp config */}
+        <div className="rounded-xl bg-card border border-border p-4 mb-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <MessageCircle className="h-4 w-4 text-[#25D366]" />
+              <span className="text-sm font-medium text-card-foreground">Meu WhatsApp</span>
+            </div>
+            {editingWhatsapp ? (
+              <div className="flex items-center gap-2">
+                <input type="text" value={whatsappInput} onChange={e => setWhatsappInput(e.target.value)}
+                  className="rounded-lg border border-input bg-background px-2 py-1 text-sm text-foreground w-40 focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="5511999999999" />
+                <button onClick={async () => {
+                  await supabase.from('operators').update({ whatsapp: whatsappInput }).eq('id', operator.id);
+                  setOperator({ ...operator, whatsapp: whatsappInput });
+                  setEditingWhatsapp(false);
+                  toast.success('WhatsApp atualizado!');
+                }} className="p-1 rounded-lg bg-primary/10 text-primary hover:opacity-80">
+                  <Check className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">{operator.whatsapp || 'Não definido'}</span>
+                <button onClick={() => setEditingWhatsapp(true)} className="p-1 rounded-lg hover:bg-muted">
+                  <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

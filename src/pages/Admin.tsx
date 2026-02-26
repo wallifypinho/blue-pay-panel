@@ -34,6 +34,7 @@ interface Operator {
   name: string;
   slug: string;
   password: string;
+  whatsapp: string;
   created_at: string;
 }
 
@@ -77,6 +78,7 @@ const Admin = () => {
   // Form - novo operador
   const [newOpName, setNewOpName] = useState('');
   const [newOpPassword, setNewOpPassword] = useState('');
+  const [newOpWhatsapp, setNewOpWhatsapp] = useState('');
   const [showOpPassword, setShowOpPassword] = useState(false);
 
   const fetchAll = async () => {
@@ -165,7 +167,7 @@ const Admin = () => {
     const slug = generateSlug(newOpName);
     const { error } = await supabase
       .from('operators')
-      .insert({ name: newOpName, slug, password: newOpPassword });
+      .insert({ name: newOpName, slug, password: newOpPassword, whatsapp: newOpWhatsapp });
 
     if (error) {
       toast.error(error.message.includes('unique') ? 'Nome/slug já existe.' : 'Erro ao criar operador.');
@@ -175,6 +177,7 @@ const Admin = () => {
     toast.success('Operador criado!');
     setNewOpName('');
     setNewOpPassword('');
+    setNewOpWhatsapp('');
     fetchAll();
   };
 
@@ -413,6 +416,12 @@ const Admin = () => {
                       </button>
                     </div>
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-card-foreground mb-1">WhatsApp</label>
+                    <input type="text" value={newOpWhatsapp} onChange={e => setNewOpWhatsapp(e.target.value)}
+                      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      placeholder="Ex: 5511999999999" />
+                  </div>
                   <button type="submit"
                     className="w-full rounded-lg bg-primary py-2.5 font-semibold text-primary-foreground hover:opacity-90">
                     Criar Operador
@@ -434,6 +443,7 @@ const Admin = () => {
                         <div>
                           <p className="font-medium text-foreground">{op.name}</p>
                           <p className="text-xs text-muted-foreground">Senha: {op.password}</p>
+                          {op.whatsapp && <p className="text-xs text-muted-foreground">WhatsApp: {op.whatsapp}</p>}
                         </div>
                         <span className="text-xs text-muted-foreground">
                           {payments.filter(p => p.operator_id === op.id).length} pagamentos
