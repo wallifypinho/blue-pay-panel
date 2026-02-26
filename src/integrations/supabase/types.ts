@@ -14,6 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
+      operators: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          password: string
+          slug: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          password: string
+          slug: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          password?: string
+          slug?: string
+        }
+        Relationships: []
+      }
       payments: {
         Row: {
           client_name: string
@@ -23,6 +47,7 @@ export type Database = {
           destination_description: string
           destination_emoji: string
           id: string
+          operator_id: string | null
           order_number: string
           pix_code: string
           value: number
@@ -35,6 +60,7 @@ export type Database = {
           destination_description?: string
           destination_emoji?: string
           id?: string
+          operator_id?: string | null
           order_number: string
           pix_code: string
           value: number
@@ -47,11 +73,20 @@ export type Database = {
           destination_description?: string
           destination_emoji?: string
           id?: string
+          operator_id?: string | null
           order_number?: string
           pix_code?: string
           value?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "payments_operator_id_fkey"
+            columns: ["operator_id"]
+            isOneToOne: false
+            referencedRelation: "operators"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
