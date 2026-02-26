@@ -78,6 +78,7 @@ Deno.serve(async (req) => {
           }
 
           try {
+            console.log("Gateway request to:", gwConfig.api_url);
             const gwResponse = await fetch(gwConfig.api_url, {
               method: "POST",
               headers: {
@@ -93,11 +94,23 @@ Deno.serve(async (req) => {
               }),
             });
 
-            const gwResult = await gwResponse.json();
+            const responseText = await gwResponse.text();
+            console.log("Gateway response status:", gwResponse.status);
+            console.log("Gateway response body:", responseText.substring(0, 500));
+
+            let gwResult: any;
+            try {
+              gwResult = JSON.parse(responseText);
+            } catch {
+              return new Response(
+                JSON.stringify({ error: `Gateway retornou resposta inválida (não é JSON). Verifique se a URL da API está correta. Status: ${gwResponse.status}` }),
+                { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              );
+            }
 
             if (!gwResponse.ok) {
               return new Response(
-                JSON.stringify({ error: `Erro no gateway: ${gwResult.message || gwResult.error || "Falha"}` }),
+                JSON.stringify({ error: `Erro no gateway (${gwResponse.status}): ${gwResult.message || gwResult.error || JSON.stringify(gwResult).substring(0, 200)}` }),
                 { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
               );
             }
@@ -105,9 +118,12 @@ Deno.serve(async (req) => {
             gatewayPixCode = gwResult.pix_code || gwResult.pix?.code || gwResult.qr_code || gwResult.brcode || gwResult.payload || "";
             gatewayQrCodeUrl = gwResult.qr_code_url || gwResult.pix?.qr_code_url || gwResult.qr_code_image || "";
             finalPixCode = gatewayPixCode || finalPixCode;
+
+            console.log("Gateway PIX code extracted:", !!gatewayPixCode);
           } catch (fetchErr) {
+            console.error("Gateway fetch error:", fetchErr);
             return new Response(
-              JSON.stringify({ error: "Erro ao conectar com o gateway" }),
+              JSON.stringify({ error: `Erro ao conectar com o gateway: ${fetchErr.message || "Verifique se a URL da API está correta"}` }),
               { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
