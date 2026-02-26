@@ -5,7 +5,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
 import { Settings, Plus, Link, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 
-const getBaseUrl = () => window.location.origin;
+const PUBLISHED_URL = 'https://centralazul.site';
 
 const generateOrderNumber = () => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -136,7 +136,7 @@ const OperatorPanel = () => {
     fetchPayments();
   };
 
-  const getPaymentLink = (id: string) => `${getBaseUrl()}/pay/${id}`;
+  const getPaymentLink = (id: string) => `${PUBLISHED_URL}/pay/${id}`;
 
   const handleCopyLink = (id: string) => {
     navigator.clipboard.writeText(getPaymentLink(id));
