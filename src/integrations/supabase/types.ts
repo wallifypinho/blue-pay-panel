@@ -22,6 +22,7 @@ export type Database = {
           password: string
           session_token: string | null
           slug: string
+          whatsapp: string
         }
         Insert: {
           created_at?: string
@@ -30,6 +31,7 @@ export type Database = {
           password: string
           session_token?: string | null
           slug: string
+          whatsapp?: string
         }
         Update: {
           created_at?: string
@@ -38,6 +40,7 @@ export type Database = {
           password?: string
           session_token?: string | null
           slug?: string
+          whatsapp?: string
         }
         Relationships: []
       }
@@ -55,6 +58,7 @@ export type Database = {
           pix_code: string
           short_code: string
           value: number
+          whatsapp: string
         }
         Insert: {
           client_name: string
@@ -69,6 +73,7 @@ export type Database = {
           pix_code: string
           short_code?: string
           value: number
+          whatsapp?: string
         }
         Update: {
           client_name?: string
@@ -83,6 +88,7 @@ export type Database = {
           pix_code?: string
           short_code?: string
           value?: number
+          whatsapp?: string
         }
         Relationships: [
           {

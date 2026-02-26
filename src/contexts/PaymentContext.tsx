@@ -11,6 +11,7 @@ export interface PaymentData {
   value: number;
   pixCode: string;
   orderNumber: string;
+  whatsapp?: string;
 }
 
 interface PaymentContextType {
