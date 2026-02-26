@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { usePayment } from '@/contexts/PaymentContext';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
-import { Settings, Eye, Trash2 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Settings, Eye, Trash2, Link } from 'lucide-react';
 
 const generateOrderNumber = () => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -20,7 +19,6 @@ const maskCPF = (cpf: string) => {
 
 const Admin = () => {
   const { payment, setPayment, clearPayment } = usePayment();
-  const navigate = useNavigate();
 
   const [clientName, setClientName] = useState('');
   const [cpfRaw, setCpfRaw] = useState('');
@@ -29,15 +27,17 @@ const Admin = () => {
   const [destinationDescription, setDestinationDescription] = useState('');
   const [value, setValue] = useState('');
   const [pixCode, setPixCode] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!clientName || !cpfRaw || !destination || !value || !pixCode) {
       toast.error('Preencha todos os campos obrigatórios.');
       return;
     }
 
-    const data = {
+    setLoading(true);
+    const id = await setPayment({
       clientName,
       cpf: maskCPF(cpfRaw),
       destination,
@@ -46,10 +46,14 @@ const Admin = () => {
       value: parseFloat(value),
       pixCode,
       orderNumber: generateOrderNumber(),
-    };
+    });
+    setLoading(false);
 
-    setPayment(data);
-    toast.success('Pagamento gerado com sucesso!');
+    if (id) {
+      toast.success('Pagamento gerado com sucesso!');
+    } else {
+      toast.error('Erro ao salvar pagamento.');
+    }
   };
 
   const handleClear = () => {
@@ -57,10 +61,22 @@ const Admin = () => {
     toast.info('Pagamento removido.');
   };
 
+  const getPaymentLink = () => {
+    if (!payment?.id) return '';
+    return `${window.location.origin}/pay/${payment.id}`;
+  };
+
+  const handleCopyLink = () => {
+    const link = getPaymentLink();
+    if (link) {
+      navigator.clipboard.writeText(link);
+      toast.success('Link copiado!');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background py-8 px-4">
       <div className="mx-auto max-w-2xl">
-        {/* Header */}
         <div className="flex items-center gap-3 mb-8">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary">
             <Settings className="h-5 w-5 text-primary-foreground" />
@@ -72,116 +88,72 @@ const Admin = () => {
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
-          {/* Form */}
           <div className="rounded-xl bg-card border border-border p-6 shadow-sm">
             <h2 className="font-semibold text-lg text-card-foreground mb-4">Gerar Pagamento</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-card-foreground mb-1">Nome do Cliente *</label>
-                <input
-                  type="text"
-                  value={clientName}
-                  onChange={(e) => setClientName(e.target.value)}
+                <input type="text" value={clientName} onChange={(e) => setClientName(e.target.value)}
                   className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  placeholder="Ex: João Silva"
-                />
+                  placeholder="Ex: João Silva" />
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-card-foreground mb-1">CPF *</label>
-                <input
-                  type="text"
-                  value={cpfRaw}
-                  onChange={(e) => setCpfRaw(e.target.value)}
+                <input type="text" value={cpfRaw} onChange={(e) => setCpfRaw(e.target.value)}
                   className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  placeholder="000.000.000-00"
-                  maxLength={14}
-                />
+                  placeholder="000.000.000-00" maxLength={14} />
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-card-foreground mb-1">Destino *</label>
-                <input
-                  type="text"
-                  value={destination}
-                  onChange={(e) => setDestination(e.target.value)}
+                <input type="text" value={destination} onChange={(e) => setDestination(e.target.value)}
                   className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  placeholder="Ex: Campinas (Viracopos) – VCP"
-                />
+                  placeholder="Ex: Campinas (Viracopos) – VCP" />
               </div>
-
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-card-foreground mb-1">Descrição</label>
-                  <input
-                    type="text"
-                    value={destinationDescription}
-                    onChange={(e) => setDestinationDescription(e.target.value)}
+                  <input type="text" value={destinationDescription} onChange={(e) => setDestinationDescription(e.target.value)}
                     className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    placeholder="Tecnologia e natureza!"
-                  />
+                    placeholder="Tecnologia e natureza!" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-card-foreground mb-1">Emoji</label>
-                  <input
-                    type="text"
-                    value={destinationEmoji}
-                    onChange={(e) => setDestinationEmoji(e.target.value)}
+                  <input type="text" value={destinationEmoji} onChange={(e) => setDestinationEmoji(e.target.value)}
                     className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    placeholder="🌻"
-                  />
+                    placeholder="🌻" />
                 </div>
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-card-foreground mb-1">Valor (R$) *</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={value}
-                  onChange={(e) => setValue(e.target.value)}
+                <input type="number" step="0.01" value={value} onChange={(e) => setValue(e.target.value)}
                   className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  placeholder="556.00"
-                />
+                  placeholder="556.00" />
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-card-foreground mb-1">Código PIX (copia e cola) *</label>
-                <textarea
-                  value={pixCode}
-                  onChange={(e) => setPixCode(e.target.value)}
-                  rows={3}
+                <textarea value={pixCode} onChange={(e) => setPixCode(e.target.value)} rows={3}
                   className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-ring"
-                  placeholder="Cole o código PIX aqui..."
-                />
+                  placeholder="Cole o código PIX aqui..." />
               </div>
-
-              <button
-                type="submit"
-                className="w-full rounded-lg bg-primary py-3 font-semibold text-primary-foreground transition-all hover:opacity-90 active:scale-[0.98]"
-              >
-                Gerar Pagamento
+              <button type="submit" disabled={loading}
+                className="w-full rounded-lg bg-primary py-3 font-semibold text-primary-foreground transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50">
+                {loading ? 'Salvando...' : 'Gerar Pagamento'}
               </button>
             </form>
           </div>
 
-          {/* Preview */}
           <div className="rounded-xl bg-card border border-border p-6 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-semibold text-lg text-card-foreground">Pagamento Ativo</h2>
               <div className="flex gap-2">
                 {payment && (
                   <>
-                    <button
-                      onClick={() => navigate('/')}
-                      className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground hover:opacity-80"
-                    >
-                      <Eye className="h-3 w-3" /> Ver
+                    <button onClick={handleCopyLink}
+                      className="inline-flex items-center gap-1 rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:opacity-80">
+                      <Link className="h-3 w-3" /> Copiar Link
                     </button>
-                    <button
-                      onClick={handleClear}
-                      className="inline-flex items-center gap-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive hover:opacity-80"
-                    >
+                    <button onClick={handleClear}
+                      className="inline-flex items-center gap-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive hover:opacity-80">
                       <Trash2 className="h-3 w-3" /> Remover
                     </button>
                   </>
@@ -191,6 +163,12 @@ const Admin = () => {
 
             {payment ? (
               <div className="space-y-3 text-sm">
+                {/* Link para o cliente */}
+                <div className="rounded-lg bg-primary/5 border border-primary/20 p-3">
+                  <p className="text-xs font-medium text-primary mb-1">Link para o cliente:</p>
+                  <p className="text-xs text-muted-foreground break-all font-mono">{getPaymentLink()}</p>
+                </div>
+
                 <div className="rounded-lg bg-muted p-3 space-y-2">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Cliente</span>
