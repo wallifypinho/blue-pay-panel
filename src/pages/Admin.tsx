@@ -63,7 +63,8 @@ const Admin = () => {
 
   const getPaymentLink = () => {
     if (!payment?.id) return '';
-    return `${window.location.origin}/pay/${payment.id}`;
+    const publishedUrl = 'https://blue-pay-panel.lovable.app';
+    return `${publishedUrl}/pay/${payment.id}`;
   };
 
   const handleCopyLink = () => {
