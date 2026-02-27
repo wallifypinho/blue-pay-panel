@@ -21,6 +21,7 @@ export type Database = {
           id: string
           is_active: boolean
           name: string
+          operator_id: string | null
           public_key: string
           secret_key: string
         }
@@ -30,6 +31,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           name: string
+          operator_id?: string | null
           public_key?: string
           secret_key: string
         }
@@ -39,10 +41,19 @@ export type Database = {
           id?: string
           is_active?: boolean
           name?: string
+          operator_id?: string | null
           public_key?: string
           secret_key?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "gateway_configs_operator_id_fkey"
+            columns: ["operator_id"]
+            isOneToOne: false
+            referencedRelation: "operators"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       operators: {
         Row: {
