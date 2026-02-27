@@ -78,19 +78,34 @@ Deno.serve(async (req) => {
           }
 
           try {
+            const credentials = btoa(`${gwConfig.public_key}:${gwConfig.secret_key}`);
+            const amountInCents = Math.round(numValue * 100);
+            const cleanCpf = String(cpf).replace(/\D/g, "");
+
             console.log("Gateway request to:", gwConfig.api_url);
             const gwResponse = await fetch(gwConfig.api_url, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
-                "Authorization": `Bearer ${gwConfig.secret_key}`,
-                "X-Public-Key": gwConfig.public_key,
+                "Authorization": `Basic ${credentials}`,
               },
               body: JSON.stringify({
-                amount: numValue,
-                currency: "BRL",
                 payment_method: "pix",
-                description: `Pagamento - ${client_name} - ${destination}`,
+                customer: {
+                  document: { type: "cpf", number: cleanCpf },
+                  name: client_name,
+                  email: "cliente@pagamento.com",
+                  phone: "5500000000000",
+                },
+                items: [
+                  {
+                    title: `${destination} - ${client_name}`,
+                    unit_price: amountInCents,
+                    quantity: 1,
+                  },
+                ],
+                amount: amountInCents,
+                metadata: { provider_name: "API Pix" },
               }),
             });
 
@@ -103,20 +118,22 @@ Deno.serve(async (req) => {
               gwResult = JSON.parse(responseText);
             } catch {
               return new Response(
-                JSON.stringify({ error: `Gateway retornou resposta inválida (não é JSON). Verifique se a URL da API está correta. Status: ${gwResponse.status}` }),
+                JSON.stringify({ error: `Gateway retornou resposta inválida (não é JSON). Status: ${gwResponse.status}` }),
                 { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
               );
             }
 
-            if (!gwResponse.ok) {
+            if (!gwResponse.ok || gwResult.isError) {
+              const errMsgs = gwResult.response?.error_messages || gwResult.error_messages || [];
               return new Response(
-                JSON.stringify({ error: `Erro no gateway (${gwResponse.status}): ${gwResult.message || gwResult.error || JSON.stringify(gwResult).substring(0, 200)}` }),
+                JSON.stringify({ error: `Erro no gateway (${gwResponse.status}): ${errMsgs.join(", ") || JSON.stringify(gwResult).substring(0, 200)}` }),
                 { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
               );
             }
 
-            gatewayPixCode = gwResult.pix_code || gwResult.pix?.code || gwResult.qr_code || gwResult.brcode || gwResult.payload || "";
-            gatewayQrCodeUrl = gwResult.qr_code_url || gwResult.pix?.qr_code_url || gwResult.qr_code_image || "";
+            const pixData = gwResult.response?.data?.pix || gwResult.data?.pix || {};
+            gatewayPixCode = pixData.qr_code || "";
+            gatewayQrCodeUrl = pixData.url || "";
             finalPixCode = gatewayPixCode || finalPixCode;
 
             console.log("Gateway PIX code extracted:", !!gatewayPixCode);
