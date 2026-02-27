@@ -247,11 +247,11 @@ Deno.serve(async (req) => {
       }
 
       case "list-gateways": {
-        // Operators can list active gateways (without keys)
+        // Operators list their own gateways
         const { data: gws, error } = await supabase
           .from("gateway_configs")
-          .select("id, name, is_active")
-          .eq("is_active", true)
+          .select("id, name, api_url, is_active, created_at")
+          .eq("operator_id", operatorId)
           .order("created_at", { ascending: true });
 
         if (error) {
@@ -263,6 +263,82 @@ Deno.serve(async (req) => {
 
         return new Response(
           JSON.stringify({ gateways: gws }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      case "create-gateway": {
+        const { name, api_url, secret_key, public_key } = data;
+        if (!name || !api_url || !secret_key) {
+          return new Response(
+            JSON.stringify({ error: "Nome, URL da API e Secret Key são obrigatórios" }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        const { data: inserted, error } = await supabase
+          .from("gateway_configs")
+          .insert({
+            name: String(name).substring(0, 100),
+            api_url: String(api_url).substring(0, 500),
+            secret_key: String(secret_key).substring(0, 500),
+            public_key: String(public_key || "").substring(0, 500),
+            operator_id: operatorId,
+          })
+          .select("id, name, api_url, is_active, created_at")
+          .single();
+
+        if (error) {
+          return new Response(
+            JSON.stringify({ error: error.message }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({ success: true, gateway: inserted }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      case "delete-gateway": {
+        const { id } = data;
+        const { error } = await supabase
+          .from("gateway_configs")
+          .delete()
+          .eq("id", id)
+          .eq("operator_id", operatorId);
+
+        if (error) {
+          return new Response(
+            JSON.stringify({ error: error.message }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({ success: true }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      case "toggle-gateway": {
+        const { id, is_active } = data;
+        const { error } = await supabase
+          .from("gateway_configs")
+          .update({ is_active: !!is_active })
+          .eq("id", id)
+          .eq("operator_id", operatorId);
+
+        if (error) {
+          return new Response(
+            JSON.stringify({ error: error.message }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({ success: true }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }

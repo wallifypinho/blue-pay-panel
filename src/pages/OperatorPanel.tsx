@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
-import { Settings, Plus, Link, ChevronDown, ChevronUp, Trash2, AlertTriangle, MessageCircle, Pencil, Check } from 'lucide-react';
+import { Settings, Plus, Link, ChevronDown, ChevronUp, Trash2, AlertTriangle, MessageCircle, Pencil, Check, Zap, Eye, EyeOff } from 'lucide-react';
 
 const PUBLISHED_URL = 'https://centralazul.site';
 
@@ -45,6 +45,8 @@ interface OperatorInfo {
 interface GatewayOption {
   id: string;
   name: string;
+  api_url?: string;
+  is_active?: boolean;
 }
 
 const OperatorPanel = () => {
@@ -75,6 +77,16 @@ const OperatorPanel = () => {
   const [loading, setLoading] = useState(false);
   const [editingWhatsapp, setEditingWhatsapp] = useState(false);
   const [whatsappInput, setWhatsappInput] = useState('');
+
+  // Gateway management
+  const [showGatewayForm, setShowGatewayForm] = useState(false);
+  const [gwName, setGwName] = useState('');
+  const [gwApiUrl, setGwApiUrl] = useState('');
+  const [gwSecretKey, setGwSecretKey] = useState('');
+  const [gwPublicKey, setGwPublicKey] = useState('');
+  const [gwLoading, setGwLoading] = useState(false);
+  const [deleteGwId, setDeleteGwId] = useState<string | null>(null);
+  const [showSecretKeys, setShowSecretKeys] = useState<Record<string, boolean>>({});
 
   const operatorAction = async (action: string, data: any = {}) => {
     if (!operator || !sessionToken) return null;
@@ -230,6 +242,42 @@ const OperatorPanel = () => {
     toast.success('Link copiado!');
   };
 
+  const handleCreateGateway = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!gwName || !gwApiUrl || !gwSecretKey) {
+      toast.error('Preencha todos os campos obrigatórios.');
+      return;
+    }
+    setGwLoading(true);
+    const result = await operatorAction('create-gateway', {
+      name: gwName, api_url: gwApiUrl, secret_key: gwSecretKey, public_key: gwPublicKey,
+    });
+    setGwLoading(false);
+    if (result?.success) {
+      toast.success('Gateway adicionado!');
+      setGwName(''); setGwApiUrl(''); setGwSecretKey(''); setGwPublicKey('');
+      setShowGatewayForm(false);
+      fetchGateways();
+    }
+  };
+
+  const handleDeleteGateway = async (id: string) => {
+    const result = await operatorAction('delete-gateway', { id });
+    if (result?.success) {
+      toast.success('Gateway excluído!');
+      setDeleteGwId(null);
+      fetchGateways();
+    }
+  };
+
+  const handleToggleGateway = async (id: string, currentActive: boolean) => {
+    const result = await operatorAction('toggle-gateway', { id, is_active: !currentActive });
+    if (result?.success) {
+      toast.success(currentActive ? 'Gateway desativado' : 'Gateway ativado');
+      fetchGateways();
+    }
+  };
+
   if (loadingOperator) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -330,6 +378,77 @@ const OperatorPanel = () => {
           </div>
         </div>
 
+        {/* Gateway Management */}
+        <div className="rounded-xl bg-card border border-border p-4 mb-6 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Zap className="h-4 w-4 text-primary" />
+              <span className="text-sm font-medium text-card-foreground">Meus Gateways</span>
+            </div>
+            <button onClick={() => setShowGatewayForm(!showGatewayForm)}
+              className="inline-flex items-center gap-1 rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:opacity-80">
+              <Plus className="h-3 w-3" /> Adicionar
+            </button>
+          </div>
+
+          {showGatewayForm && (
+            <form onSubmit={handleCreateGateway} className="space-y-2 mb-4 p-3 rounded-lg border border-border bg-background">
+              <input type="text" value={gwName} onChange={e => setGwName(e.target.value)} placeholder="Nome (ex: Hura Pay)"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+              <input type="text" value={gwApiUrl} onChange={e => setGwApiUrl(e.target.value)} placeholder="URL da API *"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+              <input type="text" value={gwPublicKey} onChange={e => setGwPublicKey(e.target.value)} placeholder="Public Key"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+              <input type="password" value={gwSecretKey} onChange={e => setGwSecretKey(e.target.value)} placeholder="Secret Key *"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+              <div className="flex gap-2">
+                <button type="submit" disabled={gwLoading}
+                  className="flex-1 rounded-lg bg-primary py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50">
+                  {gwLoading ? 'Salvando...' : 'Salvar Gateway'}
+                </button>
+                <button type="button" onClick={() => setShowGatewayForm(false)}
+                  className="rounded-lg bg-muted px-4 py-2 text-sm font-medium text-muted-foreground hover:opacity-80">
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          )}
+
+          {gateways.length === 0 && !showGatewayForm ? (
+            <p className="text-xs text-muted-foreground">Nenhum gateway configurado.</p>
+          ) : (
+            <div className="space-y-2">
+              {gateways.map(gw => (
+                <div key={gw.id} className="flex items-center justify-between rounded-lg border border-border bg-background p-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">{gw.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{gw.api_url}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button onClick={() => handleToggleGateway(gw.id, gw.is_active !== false)}
+                      className={`rounded-lg px-2 py-1 text-xs font-medium ${gw.is_active !== false ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'}`}>
+                      {gw.is_active !== false ? 'Ativo' : 'Inativo'}
+                    </button>
+                    {deleteGwId === gw.id ? (
+                      <div className="flex gap-1">
+                        <button onClick={() => handleDeleteGateway(gw.id)}
+                          className="rounded-lg bg-destructive px-2 py-1 text-xs text-destructive-foreground">Sim</button>
+                        <button onClick={() => setDeleteGwId(null)}
+                          className="rounded-lg bg-muted px-2 py-1 text-xs text-muted-foreground">Não</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setDeleteGwId(gw.id)}
+                        className="p-1 rounded-lg hover:bg-destructive/10 text-destructive">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="grid gap-6 lg:grid-cols-2">
           {/* Form */}
           <div className="rounded-xl bg-card border border-border p-6 shadow-sm">
@@ -346,13 +465,13 @@ const OperatorPanel = () => {
                     📋 PIX Manual
                   </button>
                   <button type="button" onClick={() => setPaymentMethod('gateway')}
-                    disabled={gateways.length === 0}
+                    disabled={gateways.filter(g => g.is_active !== false).length === 0}
                     className={`flex-1 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${paymentMethod === 'gateway' ? 'border-primary bg-primary/10 text-primary' : 'border-input bg-background text-muted-foreground hover:text-foreground'} disabled:opacity-40 disabled:cursor-not-allowed`}>
                     ⚡ Gateway
                   </button>
                 </div>
-                {gateways.length === 0 && (
-                  <p className="text-xs text-muted-foreground mt-1">Nenhum gateway disponível. Peça ao admin para configurar.</p>
+                {gateways.filter(g => g.is_active !== false).length === 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">Nenhum gateway ativo. Adicione um gateway acima.</p>
                 )}
               </div>
 
@@ -362,7 +481,7 @@ const OperatorPanel = () => {
                   <select value={selectedGatewayId} onChange={e => setSelectedGatewayId(e.target.value)}
                     className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring">
                     <option value="">Selecione...</option>
-                    {gateways.map(gw => (
+                    {gateways.filter(g => g.is_active !== false).map(gw => (
                       <option key={gw.id} value={gw.id}>{gw.name}</option>
                     ))}
                   </select>
